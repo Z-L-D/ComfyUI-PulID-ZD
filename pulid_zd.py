@@ -8,9 +8,9 @@ import comfy.utils
 from comfy.ldm.modules.attention import optimized_attention
 
 from insightface.app import FaceAnalysis
-from facexlib.parsing import init_parsing_model
-from facexlib.utils.face_restoration_helper import FaceRestoreHelper
-from .eva_clip.constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
+# from facexlib.parsing import init_parsing_model
+# from facexlib.utils.face_restoration_helper import FaceRestoreHelper
+# from .eva_clip.constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 
 import sys
 # Define the path to your custom nodes folder
