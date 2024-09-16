@@ -6,11 +6,6 @@ import torch
 import numpy as np
 import comfy.utils
 
-from insightface.app import FaceAnalysis
-from .eva_clip.constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
-# from facexlib.parsing import init_parsing_model
-# from facexlib.utils.face_restoration_helper import FaceRestoreHelper
-
 import sys
 # Define the path to your custom nodes folder
 custom_nodes_path = r"C:\Production\Applied Science\Software\PYTHON\ComfyUI_windows_portable\ComfyUI\custom_nodes\comfyui-pulid-zd"
@@ -19,6 +14,11 @@ custom_nodes_path = r"C:\Production\Applied Science\Software\PYTHON\ComfyUI_wind
 if custom_nodes_path not in sys.path:
     sys.path.append(custom_nodes_path)
 
+from insightface.app import FaceAnalysis
+# from facexlib.parsing import init_parsing_model
+# from facexlib.utils.face_restoration_helper import FaceRestoreHelper
+
+from .eva_clip.constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 from .utils.models import MODEL_INSIGHTFACE_DIR, INSIGHTFACE_DIR, MODEL_PULID_DIR, PULID_DIR, MODEL_CLIP_DIR, CLIP_DIR, MODEL_FACEDETECT, MODEL_FACERESTORE
 from .utils.pipeline_comfyflux import PulidModel, To_KV, tensor_to_image, image_to_tensor, tensor_to_size, set_model_patch_replace, Attn2Replace, pulid_attention, to_gray
 
