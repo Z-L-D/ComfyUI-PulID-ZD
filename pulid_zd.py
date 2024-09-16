@@ -8,9 +8,9 @@ import comfy.utils
 from comfy.ldm.modules.attention import optimized_attention
 
 from insightface.app import FaceAnalysis
+from .eva_clip.constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 # from facexlib.parsing import init_parsing_model
 # from facexlib.utils.face_restoration_helper import FaceRestoreHelper
-# from .eva_clip.constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 
 import sys
 # Define the path to your custom nodes folder
@@ -71,6 +71,7 @@ class PulidModelLoader:
 
         return (model,)
     
+    
 class PulidInsightFaceLoader:
     @classmethod
     def INPUT_TYPES(s):
@@ -89,6 +90,35 @@ class PulidInsightFaceLoader:
         model.prepare(ctx_id=0, det_size=(640, 640))
 
         return (model,)
+    
+
+class PulidEvaClipLoader:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {},
+        }
+
+    RETURN_TYPES = ("EVA_CLIP",)
+    FUNCTION = "load_eva_clip"
+    CATEGORY = "pulid"
+
+    def load_eva_clip(self):
+        from .eva_clip.factory import create_model_and_transforms
+
+        model, _, _ = create_model_and_transforms('EVA02-CLIP-L-14-336', 'eva_clip', force_custom_clip=True)
+
+        model = model.visual
+
+        eva_transform_mean = getattr(model, 'image_mean', OPENAI_DATASET_MEAN)
+        eva_transform_std = getattr(model, 'image_std', OPENAI_DATASET_STD)
+        if not isinstance(eva_transform_mean, (list, tuple)):
+            model["image_mean"] = (eva_transform_mean,) * 3
+        if not isinstance(eva_transform_std, (list, tuple)):
+            model["image_std"] = (eva_transform_std,) * 3
+
+        return (model,)
+    
 
 class ImageGetWidthHeight:
     def __init__(self):
