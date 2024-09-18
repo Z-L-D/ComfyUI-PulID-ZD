@@ -8,7 +8,7 @@ import comfy.utils
 
 import sys
 # Define the path to your custom nodes folder
-custom_nodes_path = r"C:\Production\Applied Science\Software\PYTHON\ComfyUI_windows_portable\ComfyUI\custom_nodes\comfyui-pulid-zd"
+# custom_nodes_path = r"C:\Production\Applied Science\Software\PYTHON\ComfyUI_windows_portable\ComfyUI\custom_nodes\comfyui-pulid-zd"
 
 # Append the path if it's not already in sys.path
 if custom_nodes_path not in sys.path:
