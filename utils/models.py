@@ -3,16 +3,20 @@ import folder_paths
 
 
 INSIGHTFACE_DIR = "insightface"
-MODEL_INSIGHTFACE_DIR = os.path.join(folder_paths.models_dir, INSIGHTFACE_DIR)
+INSIGHTFACE_PATH = os.path.join(folder_paths.models_dir, INSIGHTFACE_DIR)
 
 
 PULID_DIR = "controlnet"
-MODEL_PULID_DIR = os.path.join(folder_paths.models_dir, PULID_DIR)
+PULID_PATH = os.path.join(folder_paths.models_dir, PULID_DIR)
 
 
 CLIP_DIR = "clip"
-MODEL_CLIP_DIR = os.path.join(folder_paths.models_dir, CLIP_DIR)
+CLIP_PATH = os.path.join(folder_paths.models_dir, CLIP_DIR)
 
 
-MODEL_FACEDETECT = ""
-MODEL_FACERESTORE = ""
+FACEDETECT_DIR = "facedetect"
+FACEDETECT_PATH = os.path.join(folder_paths.models_dir, FACEDETECT_DIR)
+
+
+FACERESTORE_DIR = "facerestore_models"
+FACERESTORE_PATH = os.path.join(folder_paths.models_dir, FACERESTORE_DIR)

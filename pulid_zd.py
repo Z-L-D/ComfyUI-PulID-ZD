@@ -12,7 +12,7 @@ from insightface.app import FaceAnalysis
 # from facexlib.utils.face_restoration_helper import FaceRestoreHelper
 
 from .eva_clip.constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
-from .utils.models import MODEL_INSIGHTFACE_DIR, INSIGHTFACE_DIR, MODEL_PULID_DIR, PULID_DIR, MODEL_CLIP_DIR, CLIP_DIR, MODEL_FACEDETECT, MODEL_FACERESTORE
+from .utils.models import INSIGHTFACE_DIR, INSIGHTFACE_PATH, PULID_DIR, PULID_PATH, CLIP_DIR, CLIP_PATH, FACEDETECT_DIR, FACEDETECT_PATH, FACERESTORE_DIR, FACERESTORE_PATH
 from .utils.pipeline_comfyflux import PulidModel, To_KV, tensor_to_image, image_to_tensor, tensor_to_size, set_model_patch_replace, Attn2Replace, pulid_attention, to_gray
 
 
@@ -49,7 +49,7 @@ class PulidModelLoader:
     CATEGORY = "pulid"
 
     def load_model(self, pulid_file):
-        ckpt_path = folder_paths.get_full_path(MODEL_PULID_DIR, pulid_file)
+        ckpt_path = folder_paths.get_full_path(PULID_PATH, pulid_file)
 
         model = comfy.utils.load_torch_file(ckpt_path, safe_load=True)
 
@@ -83,7 +83,7 @@ class PulidInsightFaceLoader:
     CATEGORY = "pulid"
 
     def load_insightface(self, provider):
-        model = FaceAnalysis(name="antelopev2", root=MODEL_INSIGHTFACE_DIR, providers=[provider + 'ExecutionProvider',]) # alternative to buffalo_l
+        model = FaceAnalysis(name="antelopev2", root=INSIGHTFACE_PATH, providers=[provider + 'ExecutionProvider',]) # alternative to buffalo_l
         model.prepare(ctx_id=0, det_size=(640, 640))
 
         return (model,)
