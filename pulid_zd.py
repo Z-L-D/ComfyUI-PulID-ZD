@@ -11,8 +11,8 @@ import sys
 # custom_nodes_path = r"C:\Production\Applied Science\Software\PYTHON\ComfyUI_windows_portable\ComfyUI\custom_nodes\comfyui-pulid-zd"
 
 # Append the path if it's not already in sys.path
-if custom_nodes_path not in sys.path:
-    sys.path.append(custom_nodes_path)
+# if custom_nodes_path not in sys.path:
+    # sys.path.append(custom_nodes_path)
 
 from insightface.app import FaceAnalysis
 # from facexlib.parsing import init_parsing_model
