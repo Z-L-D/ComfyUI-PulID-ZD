@@ -3,6 +3,7 @@ import folder_paths
 
 from PIL import Image
 import torch
+from safetensors.torch import load_file as load_safetensors
 import numpy as np
 import comfy.utils
 
@@ -37,7 +38,11 @@ def pil2tensor(image):
 class PulidModelLoader:
     @classmethod
     def INPUT_TYPES(s):
-        return {"required": { "pulid_file": (folder_paths.get_filename_list(PULID_DIR), )}}
+        return {
+            "required": { 
+                "pulid_file": (folder_paths.get_filename_list(PULID_DIR), )
+            }
+        }
 
     RETURN_TYPES = ("PULID",)
     FUNCTION = "load_model"
@@ -63,13 +68,14 @@ class PulidModelLoader:
         return (model,)
     
     
+    
 class PulidInsightFaceLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
                 "provider": (["CPU", "CUDA", "ROCM"], ),
-            },
+            }
         }
 
     RETURN_TYPES = ("FACEANALYSIS",)
@@ -83,32 +89,50 @@ class PulidInsightFaceLoader:
         return (model,)
     
 
+
 class PulidEvaClipLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {
-            "required": {},
+            "required": {
+                "clip_file": (folder_paths.get_filename_list(CLIP_DIR), )  # Get the list of available files in CLIP_DIR
+            }
         }
 
     RETURN_TYPES = ("EVA_CLIP",)
     FUNCTION = "load_eva_clip"
     CATEGORY = "pulid"
+    
+    def load_eva_clip(self, clip_file):
+        # Get the full path of the selected file
+        model_path = folder_paths.get_full_path(CLIP_DIR, clip_file)
 
-    def load_eva_clip(self):
-        from .eva_clip.factory import create_model_and_transforms
+        # Check file extension to determine how to load it
+        if model_path.lower().endswith(".safetensors"):
+            print(f"Loading model from {model_path} (safetensors)")
+            model = load_safetensors(model_path)
+        elif model_path.lower().endswith(".pt") or model_path.lower().endswith(".pth"):
+            print(f"Loading model from {model_path} (torch)")
+            model = torch.load(model_path)
+        else:
+            raise ValueError(f"Unsupported file format: {model_path}")
+        
+        # Assuming that we need the 'visual' part of the model
+        if 'visual' in model:
+            model = model['visual']
 
-        model, _, _ = create_model_and_transforms('EVA02-CLIP-L-14-336', 'eva_clip', force_custom_clip=True)
-
-        model = model.visual
-
+        # Adjust transformations, if necessary
         eva_transform_mean = getattr(model, 'image_mean', OPENAI_DATASET_MEAN)
         eva_transform_std = getattr(model, 'image_std', OPENAI_DATASET_STD)
+
         if not isinstance(eva_transform_mean, (list, tuple)):
             model["image_mean"] = (eva_transform_mean,) * 3
         if not isinstance(eva_transform_std, (list, tuple)):
             model["image_std"] = (eva_transform_std,) * 3
-
+        
         return (model,)
+
+
 
 
 class ApplyPulid:
