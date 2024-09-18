@@ -6,14 +6,6 @@ import torch
 import numpy as np
 import comfy.utils
 
-import sys
-# Define the path to your custom nodes folder
-# custom_nodes_path = r"C:\Production\Applied Science\Software\PYTHON\ComfyUI_windows_portable\ComfyUI\custom_nodes\comfyui-pulid-zd"
-
-# Append the path if it's not already in sys.path
-# if custom_nodes_path not in sys.path:
-    # sys.path.append(custom_nodes_path)
-
 from insightface.app import FaceAnalysis
 # from facexlib.parsing import init_parsing_model
 # from facexlib.utils.face_restoration_helper import FaceRestoreHelper
@@ -310,27 +302,27 @@ class ApplyPulid:
 
         return (work_model,)
 
-class ApplyPulidAdvanced(ApplyPulid):
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "model": ("MODEL", ),
-                "pulid": ("PULID", ),
-                "eva_clip": ("EVA_CLIP", ),
-                "face_analysis": ("FACEANALYSIS", ),
-                "image": ("IMAGE", ),
-                "weight": ("FLOAT", {"default": 1.0, "min": -1.0, "max": 5.0, "step": 0.05 }),
-                "projection": (["ortho_v2", "ortho", "none"],),
-                "fidelity": ("INT", {"default": 8, "min": 0, "max": 32, "step": 1 }),
-                "noise": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.1 }),
-                "start_at": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "end_at": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-            },
-            "optional": {
-                "attn_mask": ("MASK", ),
-            },
-        }
+# class ApplyPulidAdvanced(ApplyPulid):
+#     @classmethod
+#     def INPUT_TYPES(s):
+#         return {
+#             "required": {
+#                 "model": ("MODEL", ),
+#                 "pulid": ("PULID", ),
+#                 "eva_clip": ("EVA_CLIP", ),
+#                 "face_analysis": ("FACEANALYSIS", ),
+#                 "image": ("IMAGE", ),
+#                 "weight": ("FLOAT", {"default": 1.0, "min": -1.0, "max": 5.0, "step": 0.05 }),
+#                 "projection": (["ortho_v2", "ortho", "none"],),
+#                 "fidelity": ("INT", {"default": 8, "min": 0, "max": 32, "step": 1 }),
+#                 "noise": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.1 }),
+#                 "start_at": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
+#                 "end_at": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
+#             },
+#             "optional": {
+#                 "attn_mask": ("MASK", ),
+#             },
+#         }
     
 
 class ImageGetWidthHeight:
@@ -364,7 +356,7 @@ NODE_CLASS_MAPPINGS = {
     "PulidInsightFaceLoader": PulidInsightFaceLoader,
     "PulidEvaClipLoader": PulidEvaClipLoader,
     "ApplyPulid": ApplyPulid,
-    "ApplyPulidAdvanced": ApplyPulidAdvanced,
+    # "ApplyPulidAdvanced": ApplyPulidAdvanced,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -373,5 +365,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PulidInsightFaceLoader": "Load InsightFace (PuLID)",
     "PulidEvaClipLoader": "Load Eva Clip (PuLID)",
     "ApplyPulid": "Apply PuLID",
-    "ApplyPulidAdvanced": "Apply PuLID Advanced",
+    # "ApplyPulidAdvanced": "Apply PuLID Advanced",
 }
