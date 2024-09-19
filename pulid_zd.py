@@ -8,8 +8,8 @@ import numpy as np
 import comfy.utils
 
 from insightface.app import FaceAnalysis
-# from facexlib.parsing import init_parsing_model
-# from facexlib.utils.face_restoration_helper import FaceRestoreHelper
+from facexlib.parsing import init_parsing_model
+from facexlib.utils.face_restoration_helper import FaceRestoreHelper
 
 from .eva_clip.constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 from .utils.models import INSIGHTFACE_DIR, INSIGHTFACE_PATH, PULID_DIR, PULID_PATH, CLIP_DIR, CLIP_PATH, FACEDETECT_DIR, FACEDETECT_PATH, FACERESTORE_DIR, FACERESTORE_PATH
@@ -193,20 +193,20 @@ class ApplyPulid:
         if fidelity is not None:
             num_zero = fidelity
 
-        #face_analysis.det_model.input_size = (640,640)
+        face_analysis.det_model.input_size = (640,640)
         image = tensor_to_image(image)
 
-        # face_helper = FaceRestoreHelper(
-        #     upscale_factor=1,
-        #     face_size=512,
-        #     crop_ratio=(1, 1),
-        #     det_model='retinaface_resnet50',
-        #     save_ext='png',
-        #     device=device,
-        # )
+        face_helper = FaceRestoreHelper(
+            upscale_factor=1,
+            face_size=512,
+            crop_ratio=(1, 1),
+            det_model='retinaface_resnet50',
+            save_ext='png',
+            device=device,
+        )
 
-        # face_helper.face_parse = None
-        # face_helper.face_parse = init_parsing_model(model_name='bisenet', device=device)
+        face_helper.face_parse = None
+        face_helper.face_parse = init_parsing_model(model_name='bisenet', device=device)
 
         bg_label = [0, 16, 18, 7, 8, 9, 14, 15]
         cond = []
@@ -228,30 +228,30 @@ class ApplyPulid:
                 continue
 
             # get eva_clip embeddings
-            # face_helper.clean_all()
-            # face_helper.read_image(image[i])
-            # face_helper.get_face_landmarks_5(only_center_face=True)
-            # face_helper.align_warp_face()
+            face_helper.clean_all()
+            face_helper.read_image(image[i])
+            face_helper.get_face_landmarks_5(only_center_face=True)
+            face_helper.align_warp_face()
 
-            # if len(face_helper.cropped_faces) == 0:
-            #     # No face detected, skip this image
-            #     continue
+            if len(face_helper.cropped_faces) == 0:
+                # No face detected, skip this image
+                continue
             
-            # face = face_helper.cropped_faces[0]
-            # face = image_to_tensor(face).unsqueeze(0).permute(0,3,1,2).to(device)
-            # parsing_out = face_helper.face_parse(T.functional.normalize(face, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]))[0]
-            # parsing_out = parsing_out.argmax(dim=1, keepdim=True)
-            # bg = sum(parsing_out == i for i in bg_label).bool()
-            # white_image = torch.ones_like(face)
-            # face_features_image = torch.where(bg, white_image, to_gray(face))
-            # # apparently MPS only supports NEAREST interpolation?
-            # face_features_image = T.functional.resize(face_features_image, eva_clip.image_size, T.InterpolationMode.BICUBIC if 'cuda' in device.type else T.InterpolationMode.NEAREST).to(device, dtype=dtype)
-            # face_features_image = T.functional.normalize(face_features_image, eva_clip.image_mean, eva_clip.image_std)
+            face = face_helper.cropped_faces[0]
+            face = image_to_tensor(face).unsqueeze(0).permute(0,3,1,2).to(device)
+            parsing_out = face_helper.face_parse(T.functional.normalize(face, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]))[0]
+            parsing_out = parsing_out.argmax(dim=1, keepdim=True)
+            bg = sum(parsing_out == i for i in bg_label).bool()
+            white_image = torch.ones_like(face)
+            face_features_image = torch.where(bg, white_image, to_gray(face))
+            # apparently MPS only supports NEAREST interpolation?
+            face_features_image = T.functional.resize(face_features_image, eva_clip.image_size, T.InterpolationMode.BICUBIC if 'cuda' in device.type else T.InterpolationMode.NEAREST).to(device, dtype=dtype)
+            face_features_image = T.functional.normalize(face_features_image, eva_clip.image_mean, eva_clip.image_std)
             
-            # id_cond_vit, id_vit_hidden = eva_clip(face_features_image, return_all_features=False, return_hidden=True, shuffle=False)
+            id_cond_vit, id_vit_hidden = eva_clip(face_features_image, return_all_features=False, return_hidden=True, shuffle=False)
             id_cond_vit = id_cond_vit.to(device, dtype=dtype)
-            # for idx in range(len(id_vit_hidden)):
-            #     id_vit_hidden[idx] = id_vit_hidden[idx].to(device, dtype=dtype)
+            for idx in range(len(id_vit_hidden)):
+                id_vit_hidden[idx] = id_vit_hidden[idx].to(device, dtype=dtype)
 
             id_cond_vit = torch.div(id_cond_vit, torch.norm(id_cond_vit, 2, 1, True))
 
@@ -262,13 +262,13 @@ class ApplyPulid:
             else:
                 id_uncond = torch.rand_like(id_cond) * noise
             id_vit_hidden_uncond = []
-            # for idx in range(len(id_vit_hidden)):
-                # if noise == 0:
-                    # id_vit_hidden_uncond.append(torch.zeros_like(id_vit_hidden[idx]))
-                # else:
-                    # id_vit_hidden_uncond.append(torch.rand_like(id_vit_hidden[idx]) * noise)
+            for idx in range(len(id_vit_hidden)):
+                if noise == 0:
+                    id_vit_hidden_uncond.append(torch.zeros_like(id_vit_hidden[idx]))
+                else:
+                    id_vit_hidden_uncond.append(torch.rand_like(id_vit_hidden[idx]) * noise)
             
-            # cond.append(pulid_model.get_image_embeds(id_cond, id_vit_hidden))
+            cond.append(pulid_model.get_image_embeds(id_cond, id_vit_hidden))
             uncond.append(pulid_model.get_image_embeds(id_uncond, id_vit_hidden_uncond))
 
         if not cond:
@@ -324,30 +324,7 @@ class ApplyPulid:
             set_model_patch_replace(work_model, patch_kwargs, ("middle", 1, index))
             number += 1
 
-        return (work_model,)
-
-# class ApplyPulidAdvanced(ApplyPulid):
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {
-#             "required": {
-#                 "model": ("MODEL", ),
-#                 "pulid": ("PULID", ),
-#                 "eva_clip": ("EVA_CLIP", ),
-#                 "face_analysis": ("FACEANALYSIS", ),
-#                 "image": ("IMAGE", ),
-#                 "weight": ("FLOAT", {"default": 1.0, "min": -1.0, "max": 5.0, "step": 0.05 }),
-#                 "projection": (["ortho_v2", "ortho", "none"],),
-#                 "fidelity": ("INT", {"default": 8, "min": 0, "max": 32, "step": 1 }),
-#                 "noise": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.1 }),
-#                 "start_at": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-#                 "end_at": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-#             },
-#             "optional": {
-#                 "attn_mask": ("MASK", ),
-#             },
-#         }
-    
+        return (work_model,)    
 
 class ImageGetWidthHeight:
     def __init__(self):
