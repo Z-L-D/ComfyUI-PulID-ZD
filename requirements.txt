@@ -6,4 +6,3 @@ timm
 safetensors
 opencv-python
 scipy
-filterpy

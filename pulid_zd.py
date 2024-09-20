@@ -1,21 +1,190 @@
 import os
 import folder_paths
+import math
 
 from PIL import Image
 import torch
+from torch import nn
+import torchvision.transforms as T
+import torch.nn.functional as F
 from safetensors.torch import load_file as load_safetensors
 import numpy as np
 import comfy.utils
+from comfy.ldm.modules.attention import optimized_attention
 
 from insightface.app import FaceAnalysis
 from facexlib.parsing import init_parsing_model
 from facexlib.utils.face_restoration_helper import FaceRestoreHelper
 
 from .eva_clip.constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
+from .encoders import IDEncoder
 from .utils.models import INSIGHTFACE_DIR, INSIGHTFACE_PATH, PULID_DIR, PULID_PATH, CLIP_DIR, CLIP_PATH, FACEDETECT_DIR, FACEDETECT_PATH, FACERESTORE_DIR, FACERESTORE_PATH
 from .utils.pipeline_comfyflux import PulidModel, To_KV, tensor_to_image, image_to_tensor, tensor_to_size, set_model_patch_replace, Attn2Replace, pulid_attention, to_gray
 
+class PulidModel(nn.Module):
+    def __init__(self, model):
+        super().__init__()
 
+        self.model = model
+        self.image_proj_model = self.init_id_adapter()
+        self.image_proj_model.load_state_dict(model["image_proj"])
+        self.ip_layers = To_KV(model["ip_adapter"])
+    
+    def init_id_adapter(self):
+        image_proj_model = IDEncoder()
+        return image_proj_model
+
+    def get_image_embeds(self, face_embed, clip_embeds):
+        embeds = self.image_proj_model(face_embed, clip_embeds)
+        return embeds
+
+class To_KV(nn.Module):
+    def __init__(self, state_dict):
+        super().__init__()
+
+        self.to_kvs = nn.ModuleDict()
+        for key, value in state_dict.items():
+            self.to_kvs[key.replace(".weight", "").replace(".", "_")] = nn.Linear(value.shape[1], value.shape[0], bias=False)
+            self.to_kvs[key.replace(".weight", "").replace(".", "_")].weight.data = value
+
+def tensor_to_image(tensor):
+    image = tensor.mul(255).clamp(0, 255).byte().cpu()
+    image = image[..., [2, 1, 0]].numpy()
+    return image
+
+def image_to_tensor(image):
+    tensor = torch.clamp(torch.from_numpy(image).float() / 255., 0, 1)
+    tensor = tensor[..., [2, 1, 0]]
+    return tensor
+
+def tensor_to_size(source, dest_size):
+    if isinstance(dest_size, torch.Tensor):
+        dest_size = dest_size.shape[0]
+    source_size = source.shape[0]
+
+    if source_size < dest_size:
+        shape = [dest_size - source_size] + [1]*(source.dim()-1)
+        source = torch.cat((source, source[-1:].repeat(shape)), dim=0)
+    elif source_size > dest_size:
+        source = source[:dest_size]
+    
+    return source
+
+def set_model_patch_replace(model, patch_kwargs, key):
+    to = model.model_options["transformer_options"].copy()
+    if "patches_replace" not in to:
+        to["patches_replace"] = {}
+    else:
+        to["patches_replace"] = to["patches_replace"].copy()
+
+    if "attn2" not in to["patches_replace"]:
+        to["patches_replace"]["attn2"] = {}
+    else:
+        to["patches_replace"]["attn2"] = to["patches_replace"]["attn2"].copy()
+    
+    if key not in to["patches_replace"]["attn2"]:
+        to["patches_replace"]["attn2"][key] = Attn2Replace(pulid_attention, **patch_kwargs)
+        model.model_options["transformer_options"] = to
+    else:
+        to["patches_replace"]["attn2"][key].add(pulid_attention, **patch_kwargs)
+
+class Attn2Replace:
+    def __init__(self, callback=None, **kwargs):
+        self.callback = [callback]
+        self.kwargs = [kwargs]
+    
+    def add(self, callback, **kwargs):          
+        self.callback.append(callback)
+        self.kwargs.append(kwargs)
+
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def __call__(self, q, k, v, extra_options):
+        dtype = q.dtype
+        out = optimized_attention(q, k, v, extra_options["n_heads"])
+        sigma = extra_options["sigmas"].detach().cpu()[0].item() if 'sigmas' in extra_options else 999999999.9
+
+        for i, callback in enumerate(self.callback):
+            if sigma <= self.kwargs[i]["sigma_start"] and sigma >= self.kwargs[i]["sigma_end"]:
+                out = out + callback(out, q, k, v, extra_options, **self.kwargs[i])
+        
+        return out.to(dtype=dtype)
+
+def pulid_attention(out, q, k, v, extra_options, module_key='', pulid=None, cond=None, uncond=None, weight=1.0, ortho=False, ortho_v2=False, mask=None, **kwargs):
+    k_key = module_key + "_to_k_ip"
+    v_key = module_key + "_to_v_ip"
+
+    dtype = q.dtype
+    seq_len = q.shape[1]
+    cond_or_uncond = extra_options["cond_or_uncond"]
+    b = q.shape[0]
+    batch_prompt = b // len(cond_or_uncond)
+    _, _, oh, ow = extra_options["original_shape"]
+
+    #conds = torch.cat([uncond.repeat(batch_prompt, 1, 1), cond.repeat(batch_prompt, 1, 1)], dim=0)
+    #zero_tensor = torch.zeros((conds.size(0), num_zero, conds.size(-1)), dtype=conds.dtype, device=conds.device)
+    #conds = torch.cat([conds, zero_tensor], dim=1)
+    #ip_k = pulid.ip_layers.to_kvs[k_key](conds)
+    #ip_v = pulid.ip_layers.to_kvs[v_key](conds)
+    
+    k_cond = pulid.ip_layers.to_kvs[k_key](cond).repeat(batch_prompt, 1, 1)
+    k_uncond = pulid.ip_layers.to_kvs[k_key](uncond).repeat(batch_prompt, 1, 1)
+    v_cond = pulid.ip_layers.to_kvs[v_key](cond).repeat(batch_prompt, 1, 1)
+    v_uncond = pulid.ip_layers.to_kvs[v_key](uncond).repeat(batch_prompt, 1, 1)
+    ip_k = torch.cat([(k_cond, k_uncond)[i] for i in cond_or_uncond], dim=0)
+    ip_v = torch.cat([(v_cond, v_uncond)[i] for i in cond_or_uncond], dim=0)
+
+    out_ip = optimized_attention(q, ip_k, ip_v, extra_options["n_heads"])
+        
+    if ortho:
+        out = out.to(dtype=torch.float32)
+        out_ip = out_ip.to(dtype=torch.float32)
+        projection = (torch.sum((out * out_ip), dim=-2, keepdim=True) / torch.sum((out * out), dim=-2, keepdim=True) * out)
+        orthogonal = out_ip - projection
+        out_ip = weight * orthogonal
+    elif ortho_v2:
+        out = out.to(dtype=torch.float32)
+        out_ip = out_ip.to(dtype=torch.float32)
+        attn_map = q @ ip_k.transpose(-2, -1)
+        attn_mean = attn_map.softmax(dim=-1).mean(dim=1, keepdim=True)
+        attn_mean = attn_mean[:, :, :5].sum(dim=-1, keepdim=True)
+        projection = (torch.sum((out * out_ip), dim=-2, keepdim=True) / torch.sum((out * out), dim=-2, keepdim=True) * out)
+        orthogonal = out_ip + (attn_mean - 1) * projection
+        out_ip = weight * orthogonal
+    else:
+        out_ip = out_ip * weight
+
+    if mask is not None:
+        mask_h = oh / math.sqrt(oh * ow / seq_len)
+        mask_h = int(mask_h) + int((seq_len % int(mask_h)) != 0)
+        mask_w = seq_len // mask_h
+
+        mask = F.interpolate(mask.unsqueeze(1), size=(mask_h, mask_w), mode="bilinear").squeeze(1)
+        mask = tensor_to_size(mask, batch_prompt)
+
+        mask = mask.repeat(len(cond_or_uncond), 1, 1)
+        mask = mask.view(mask.shape[0], -1, 1).repeat(1, 1, out.shape[2])
+
+        # covers cases where extreme aspect ratios can cause the mask to have a wrong size
+        mask_len = mask_h * mask_w
+        if mask_len < seq_len:
+            pad_len = seq_len - mask_len
+            pad1 = pad_len // 2
+            pad2 = pad_len - pad1
+            mask = F.pad(mask, (0, 0, pad1, pad2), value=0.0)
+        elif mask_len > seq_len:
+            crop_start = (mask_len - seq_len) // 2
+            mask = mask[:, crop_start:crop_start+seq_len, :]
+
+        out_ip = out_ip * mask
+
+    return out_ip.to(dtype=dtype)
+
+def to_gray(img):
+    x = 0.299 * img[:, 0:1] + 0.587 * img[:, 1:2] + 0.114 * img[:, 2:3]
+    x = x.repeat(1, 3, 1, 1)
+    return x
 
 # Tensor to PIL
 def tensor2pil(image):
@@ -49,7 +218,7 @@ class PulidModelLoader:
     CATEGORY = "pulid"
 
     def load_model(self, pulid_file):
-        ckpt_path = folder_paths.get_full_path(PULID_PATH, pulid_file)
+        ckpt_path = folder_paths.get_full_path(PULID_DIR, pulid_file)
 
         model = comfy.utils.load_torch_file(ckpt_path, safe_load=True)
 
@@ -90,47 +259,82 @@ class PulidInsightFaceLoader:
     
 
 
+# class PulidEvaClipLoader:
+#     @classmethod
+#     def INPUT_TYPES(s):
+#         return {
+#             "required": {
+#                 "clip_file": (folder_paths.get_filename_list(CLIP_DIR), )  # Get the list of available files in CLIP_DIR
+#             }
+#         }
+
+#     RETURN_TYPES = ("EVA_CLIP",)
+#     FUNCTION = "load_eva_clip"
+#     CATEGORY = "pulid"
+    
+#     def load_eva_clip(self, clip_file):
+#         # Get the full path of the selected file
+#         model_path = folder_paths.get_full_path(CLIP_DIR, clip_file)
+
+#         # Check file extension to determine how to load it
+#         if model_path.lower().endswith(".safetensors"):
+#             print(f"Loading model from {model_path} (safetensors)")
+#             model = load_safetensors(model_path)
+#         elif model_path.lower().endswith(".pt") or model_path.lower().endswith(".pth"):
+#             print(f"Loading model from {model_path} (torch)")
+#             model = torch.load(model_path)
+#         else:
+#             raise ValueError(f"Unsupported file format: {model_path}")
+        
+#         # If the model is a dictionary (which is often the case), extract the 'visual' part
+#         if isinstance(model, dict):
+#             if 'visual' in model:
+#                 model = model['visual']  # Extract the 'visual' part, assuming this is what you need
+#             else:
+#                 raise KeyError(f"Expected 'visual' key in the model dictionary, but it was not found.")
+        
+#         # Ensure 'model' is now a PyTorch module (i.e., nn.Module), not a dictionary
+#         if not isinstance(model, torch.nn.Module):
+#             raise TypeError(f"Loaded model is of type {type(model)}, expected a PyTorch model (nn.Module).")
+
+#         # Adjust transformations if necessary
+#         eva_transform_mean = getattr(model, 'image_mean', OPENAI_DATASET_MEAN)
+#         eva_transform_std = getattr(model, 'image_std', OPENAI_DATASET_STD)
+
+#         if not isinstance(eva_transform_mean, (list, tuple)):
+#             model.image_mean = (eva_transform_mean,) * 3
+#         if not isinstance(eva_transform_std, (list, tuple)):
+#             model.image_std = (eva_transform_std,) * 3
+        
+#         return (model,)
+
 class PulidEvaClipLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {
-            "required": {
-                "clip_file": (folder_paths.get_filename_list(CLIP_DIR), )  # Get the list of available files in CLIP_DIR
-            }
+            "required": {},
         }
 
     RETURN_TYPES = ("EVA_CLIP",)
     FUNCTION = "load_eva_clip"
     CATEGORY = "pulid"
-    
-    def load_eva_clip(self, clip_file):
-        # Get the full path of the selected file
-        model_path = folder_paths.get_full_path(CLIP_DIR, clip_file)
 
-        # Check file extension to determine how to load it
-        if model_path.lower().endswith(".safetensors"):
-            print(f"Loading model from {model_path} (safetensors)")
-            model = load_safetensors(model_path)
-        elif model_path.lower().endswith(".pt") or model_path.lower().endswith(".pth"):
-            print(f"Loading model from {model_path} (torch)")
-            model = torch.load(model_path)
-        else:
-            raise ValueError(f"Unsupported file format: {model_path}")
-        
-        # Assuming that we need the 'visual' part of the model
-        if 'visual' in model:
-            model = model['visual']
+    def load_eva_clip(self):
+        from .eva_clip.factory import create_model_and_transforms
 
-        # Adjust transformations, if necessary
+        model, _, _ = create_model_and_transforms('EVA02-CLIP-L-14-336', 'eva_clip', force_custom_clip=True)
+
+        model = model.visual
+
         eva_transform_mean = getattr(model, 'image_mean', OPENAI_DATASET_MEAN)
         eva_transform_std = getattr(model, 'image_std', OPENAI_DATASET_STD)
-
         if not isinstance(eva_transform_mean, (list, tuple)):
             model["image_mean"] = (eva_transform_mean,) * 3
         if not isinstance(eva_transform_std, (list, tuple)):
             model["image_std"] = (eva_transform_std,) * 3
-        
+
         return (model,)
+
 
 
 
@@ -357,7 +561,6 @@ NODE_CLASS_MAPPINGS = {
     "PulidInsightFaceLoader": PulidInsightFaceLoader,
     "PulidEvaClipLoader": PulidEvaClipLoader,
     "ApplyPulid": ApplyPulid,
-    # "ApplyPulidAdvanced": ApplyPulidAdvanced,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -366,5 +569,4 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PulidInsightFaceLoader": "Load InsightFace (PuLID)",
     "PulidEvaClipLoader": "Load Eva Clip (PuLID)",
     "ApplyPulid": "Apply PuLID",
-    # "ApplyPulidAdvanced": "Apply PuLID Advanced",
 }
