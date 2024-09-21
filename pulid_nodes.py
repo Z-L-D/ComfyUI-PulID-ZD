@@ -17,186 +17,189 @@ from facexlib.parsing import init_parsing_model
 from facexlib.utils.face_restoration_helper import FaceRestoreHelper
 
 from .eva_clip.constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
-from .encoders import IDEncoder
-from .utils.models import INSIGHTFACE_DIR, INSIGHTFACE_PATH, PULID_DIR, PULID_PATH, CLIP_DIR, CLIP_PATH, FACEDETECT_DIR, FACEDETECT_PATH, FACERESTORE_DIR, FACERESTORE_PATH
-from .utils.pipeline_comfyflux import PulidModel, To_KV, tensor_to_image, image_to_tensor, tensor_to_size, set_model_patch_replace, Attn2Replace, pulid_attention, to_gray
+from .pulid.encoders import IDEncoder
+from .pulid.encoders_flux import PerceiverAttentionCA, PerceiverAttention, IDFormer
+from .models.path import INSIGHTFACE_DIR, INSIGHTFACE_PATH, PULID_DIR, PULID_PATH, CLIP_DIR, CLIP_PATH, FACEDETECT_DIR, FACEDETECT_PATH, FACERESTORE_DIR, FACERESTORE_PATH
+from .nodes.load_model_pulid import load_model_pulid
+from .nodes.load_model_insightface import load_model_insightface
+# from .utils.pipeline_comfyflux import PulidModel, To_KV, tensor_to_image, image_to_tensor, tensor_to_size, set_model_patch_replace, Attn2Replace, pulid_attention, to_gray
 
-class PulidModel(nn.Module):
-    def __init__(self, model):
-        super().__init__()
+# class PulidModel(nn.Module):
+#     def __init__(self, model):
+#         super().__init__()
 
-        self.model = model
-        self.image_proj_model = self.init_id_adapter()
-        self.image_proj_model.load_state_dict(model["image_proj"])
-        self.ip_layers = To_KV(model["ip_adapter"])
+#         self.model = model
+#         self.image_proj_model = self.init_id_adapter()
+#         self.image_proj_model.load_state_dict(model["image_proj"])
+#         self.ip_layers = To_KV(model["ip_adapter"])
     
-    def init_id_adapter(self):
-        image_proj_model = IDEncoder()
-        return image_proj_model
+#     def init_id_adapter(self):
+#         image_proj_model = IDEncoder()
+#         return image_proj_model
 
-    def get_image_embeds(self, face_embed, clip_embeds):
-        embeds = self.image_proj_model(face_embed, clip_embeds)
-        return embeds
+#     def get_image_embeds(self, face_embed, clip_embeds):
+#         embeds = self.image_proj_model(face_embed, clip_embeds)
+#         return embeds
 
-class To_KV(nn.Module):
-    def __init__(self, state_dict):
-        super().__init__()
+# class To_KV(nn.Module):
+#     def __init__(self, state_dict):
+#         super().__init__()
 
-        self.to_kvs = nn.ModuleDict()
-        for key, value in state_dict.items():
-            self.to_kvs[key.replace(".weight", "").replace(".", "_")] = nn.Linear(value.shape[1], value.shape[0], bias=False)
-            self.to_kvs[key.replace(".weight", "").replace(".", "_")].weight.data = value
+#         self.to_kvs = nn.ModuleDict()
+#         for key, value in state_dict.items():
+#             self.to_kvs[key.replace(".weight", "").replace(".", "_")] = nn.Linear(value.shape[1], value.shape[0], bias=False)
+#             self.to_kvs[key.replace(".weight", "").replace(".", "_")].weight.data = value
 
-def tensor_to_image(tensor):
-    image = tensor.mul(255).clamp(0, 255).byte().cpu()
-    image = image[..., [2, 1, 0]].numpy()
-    return image
+# def tensor_to_image(tensor):
+#     image = tensor.mul(255).clamp(0, 255).byte().cpu()
+#     image = image[..., [2, 1, 0]].numpy()
+#     return image
 
-def image_to_tensor(image):
-    tensor = torch.clamp(torch.from_numpy(image).float() / 255., 0, 1)
-    tensor = tensor[..., [2, 1, 0]]
-    return tensor
+# def image_to_tensor(image):
+#     tensor = torch.clamp(torch.from_numpy(image).float() / 255., 0, 1)
+#     tensor = tensor[..., [2, 1, 0]]
+#     return tensor
 
-def tensor_to_size(source, dest_size):
-    if isinstance(dest_size, torch.Tensor):
-        dest_size = dest_size.shape[0]
-    source_size = source.shape[0]
+# def tensor_to_size(source, dest_size):
+#     if isinstance(dest_size, torch.Tensor):
+#         dest_size = dest_size.shape[0]
+#     source_size = source.shape[0]
 
-    if source_size < dest_size:
-        shape = [dest_size - source_size] + [1]*(source.dim()-1)
-        source = torch.cat((source, source[-1:].repeat(shape)), dim=0)
-    elif source_size > dest_size:
-        source = source[:dest_size]
+#     if source_size < dest_size:
+#         shape = [dest_size - source_size] + [1]*(source.dim()-1)
+#         source = torch.cat((source, source[-1:].repeat(shape)), dim=0)
+#     elif source_size > dest_size:
+#         source = source[:dest_size]
     
-    return source
+#     return source
 
-def set_model_patch_replace(model, patch_kwargs, key):
-    to = model.model_options["transformer_options"].copy()
-    if "patches_replace" not in to:
-        to["patches_replace"] = {}
-    else:
-        to["patches_replace"] = to["patches_replace"].copy()
+# def set_model_patch_replace(model, patch_kwargs, key):
+#     to = model.model_options["transformer_options"].copy()
+#     if "patches_replace" not in to:
+#         to["patches_replace"] = {}
+#     else:
+#         to["patches_replace"] = to["patches_replace"].copy()
 
-    if "attn2" not in to["patches_replace"]:
-        to["patches_replace"]["attn2"] = {}
-    else:
-        to["patches_replace"]["attn2"] = to["patches_replace"]["attn2"].copy()
+#     if "attn2" not in to["patches_replace"]:
+#         to["patches_replace"]["attn2"] = {}
+#     else:
+#         to["patches_replace"]["attn2"] = to["patches_replace"]["attn2"].copy()
     
-    if key not in to["patches_replace"]["attn2"]:
-        to["patches_replace"]["attn2"][key] = Attn2Replace(pulid_attention, **patch_kwargs)
-        model.model_options["transformer_options"] = to
-    else:
-        to["patches_replace"]["attn2"][key].add(pulid_attention, **patch_kwargs)
+#     if key not in to["patches_replace"]["attn2"]:
+#         to["patches_replace"]["attn2"][key] = Attn2Replace(pulid_attention, **patch_kwargs)
+#         model.model_options["transformer_options"] = to
+#     else:
+#         to["patches_replace"]["attn2"][key].add(pulid_attention, **patch_kwargs)
 
-class Attn2Replace:
-    def __init__(self, callback=None, **kwargs):
-        self.callback = [callback]
-        self.kwargs = [kwargs]
+# class Attn2Replace:
+#     def __init__(self, callback=None, **kwargs):
+#         self.callback = [callback]
+#         self.kwargs = [kwargs]
     
-    def add(self, callback, **kwargs):          
-        self.callback.append(callback)
-        self.kwargs.append(kwargs)
+#     def add(self, callback, **kwargs):          
+#         self.callback.append(callback)
+#         self.kwargs.append(kwargs)
 
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+#         for key, value in kwargs.items():
+#             setattr(self, key, value)
 
-    def __call__(self, q, k, v, extra_options):
-        dtype = q.dtype
-        out = optimized_attention(q, k, v, extra_options["n_heads"])
-        sigma = extra_options["sigmas"].detach().cpu()[0].item() if 'sigmas' in extra_options else 999999999.9
+#     def __call__(self, q, k, v, extra_options):
+#         dtype = q.dtype
+#         out = optimized_attention(q, k, v, extra_options["n_heads"])
+#         sigma = extra_options["sigmas"].detach().cpu()[0].item() if 'sigmas' in extra_options else 999999999.9
 
-        for i, callback in enumerate(self.callback):
-            if sigma <= self.kwargs[i]["sigma_start"] and sigma >= self.kwargs[i]["sigma_end"]:
-                out = out + callback(out, q, k, v, extra_options, **self.kwargs[i])
+#         for i, callback in enumerate(self.callback):
+#             if sigma <= self.kwargs[i]["sigma_start"] and sigma >= self.kwargs[i]["sigma_end"]:
+#                 out = out + callback(out, q, k, v, extra_options, **self.kwargs[i])
         
-        return out.to(dtype=dtype)
+#         return out.to(dtype=dtype)
 
-def pulid_attention(out, q, k, v, extra_options, module_key='', pulid=None, cond=None, uncond=None, weight=1.0, ortho=False, ortho_v2=False, mask=None, **kwargs):
-    k_key = module_key + "_to_k_ip"
-    v_key = module_key + "_to_v_ip"
+# def pulid_attention(out, q, k, v, extra_options, module_key='', pulid=None, cond=None, uncond=None, weight=1.0, ortho=False, ortho_v2=False, mask=None, **kwargs):
+#     k_key = module_key + "_to_k_ip"
+#     v_key = module_key + "_to_v_ip"
 
-    dtype = q.dtype
-    seq_len = q.shape[1]
-    cond_or_uncond = extra_options["cond_or_uncond"]
-    b = q.shape[0]
-    batch_prompt = b // len(cond_or_uncond)
-    _, _, oh, ow = extra_options["original_shape"]
+#     dtype = q.dtype
+#     seq_len = q.shape[1]
+#     cond_or_uncond = extra_options["cond_or_uncond"]
+#     b = q.shape[0]
+#     batch_prompt = b // len(cond_or_uncond)
+#     _, _, oh, ow = extra_options["original_shape"]
 
-    #conds = torch.cat([uncond.repeat(batch_prompt, 1, 1), cond.repeat(batch_prompt, 1, 1)], dim=0)
-    #zero_tensor = torch.zeros((conds.size(0), num_zero, conds.size(-1)), dtype=conds.dtype, device=conds.device)
-    #conds = torch.cat([conds, zero_tensor], dim=1)
-    #ip_k = pulid.ip_layers.to_kvs[k_key](conds)
-    #ip_v = pulid.ip_layers.to_kvs[v_key](conds)
+#     #conds = torch.cat([uncond.repeat(batch_prompt, 1, 1), cond.repeat(batch_prompt, 1, 1)], dim=0)
+#     #zero_tensor = torch.zeros((conds.size(0), num_zero, conds.size(-1)), dtype=conds.dtype, device=conds.device)
+#     #conds = torch.cat([conds, zero_tensor], dim=1)
+#     #ip_k = pulid.ip_layers.to_kvs[k_key](conds)
+#     #ip_v = pulid.ip_layers.to_kvs[v_key](conds)
     
-    k_cond = pulid.ip_layers.to_kvs[k_key](cond).repeat(batch_prompt, 1, 1)
-    k_uncond = pulid.ip_layers.to_kvs[k_key](uncond).repeat(batch_prompt, 1, 1)
-    v_cond = pulid.ip_layers.to_kvs[v_key](cond).repeat(batch_prompt, 1, 1)
-    v_uncond = pulid.ip_layers.to_kvs[v_key](uncond).repeat(batch_prompt, 1, 1)
-    ip_k = torch.cat([(k_cond, k_uncond)[i] for i in cond_or_uncond], dim=0)
-    ip_v = torch.cat([(v_cond, v_uncond)[i] for i in cond_or_uncond], dim=0)
+#     k_cond = pulid.ip_layers.to_kvs[k_key](cond).repeat(batch_prompt, 1, 1)
+#     k_uncond = pulid.ip_layers.to_kvs[k_key](uncond).repeat(batch_prompt, 1, 1)
+#     v_cond = pulid.ip_layers.to_kvs[v_key](cond).repeat(batch_prompt, 1, 1)
+#     v_uncond = pulid.ip_layers.to_kvs[v_key](uncond).repeat(batch_prompt, 1, 1)
+#     ip_k = torch.cat([(k_cond, k_uncond)[i] for i in cond_or_uncond], dim=0)
+#     ip_v = torch.cat([(v_cond, v_uncond)[i] for i in cond_or_uncond], dim=0)
 
-    out_ip = optimized_attention(q, ip_k, ip_v, extra_options["n_heads"])
+#     out_ip = optimized_attention(q, ip_k, ip_v, extra_options["n_heads"])
         
-    if ortho:
-        out = out.to(dtype=torch.float32)
-        out_ip = out_ip.to(dtype=torch.float32)
-        projection = (torch.sum((out * out_ip), dim=-2, keepdim=True) / torch.sum((out * out), dim=-2, keepdim=True) * out)
-        orthogonal = out_ip - projection
-        out_ip = weight * orthogonal
-    elif ortho_v2:
-        out = out.to(dtype=torch.float32)
-        out_ip = out_ip.to(dtype=torch.float32)
-        attn_map = q @ ip_k.transpose(-2, -1)
-        attn_mean = attn_map.softmax(dim=-1).mean(dim=1, keepdim=True)
-        attn_mean = attn_mean[:, :, :5].sum(dim=-1, keepdim=True)
-        projection = (torch.sum((out * out_ip), dim=-2, keepdim=True) / torch.sum((out * out), dim=-2, keepdim=True) * out)
-        orthogonal = out_ip + (attn_mean - 1) * projection
-        out_ip = weight * orthogonal
-    else:
-        out_ip = out_ip * weight
+#     if ortho:
+#         out = out.to(dtype=torch.float32)
+#         out_ip = out_ip.to(dtype=torch.float32)
+#         projection = (torch.sum((out * out_ip), dim=-2, keepdim=True) / torch.sum((out * out), dim=-2, keepdim=True) * out)
+#         orthogonal = out_ip - projection
+#         out_ip = weight * orthogonal
+#     elif ortho_v2:
+#         out = out.to(dtype=torch.float32)
+#         out_ip = out_ip.to(dtype=torch.float32)
+#         attn_map = q @ ip_k.transpose(-2, -1)
+#         attn_mean = attn_map.softmax(dim=-1).mean(dim=1, keepdim=True)
+#         attn_mean = attn_mean[:, :, :5].sum(dim=-1, keepdim=True)
+#         projection = (torch.sum((out * out_ip), dim=-2, keepdim=True) / torch.sum((out * out), dim=-2, keepdim=True) * out)
+#         orthogonal = out_ip + (attn_mean - 1) * projection
+#         out_ip = weight * orthogonal
+#     else:
+#         out_ip = out_ip * weight
 
-    if mask is not None:
-        mask_h = oh / math.sqrt(oh * ow / seq_len)
-        mask_h = int(mask_h) + int((seq_len % int(mask_h)) != 0)
-        mask_w = seq_len // mask_h
+#     if mask is not None:
+#         mask_h = oh / math.sqrt(oh * ow / seq_len)
+#         mask_h = int(mask_h) + int((seq_len % int(mask_h)) != 0)
+#         mask_w = seq_len // mask_h
 
-        mask = F.interpolate(mask.unsqueeze(1), size=(mask_h, mask_w), mode="bilinear").squeeze(1)
-        mask = tensor_to_size(mask, batch_prompt)
+#         mask = F.interpolate(mask.unsqueeze(1), size=(mask_h, mask_w), mode="bilinear").squeeze(1)
+#         mask = tensor_to_size(mask, batch_prompt)
 
-        mask = mask.repeat(len(cond_or_uncond), 1, 1)
-        mask = mask.view(mask.shape[0], -1, 1).repeat(1, 1, out.shape[2])
+#         mask = mask.repeat(len(cond_or_uncond), 1, 1)
+#         mask = mask.view(mask.shape[0], -1, 1).repeat(1, 1, out.shape[2])
 
-        # covers cases where extreme aspect ratios can cause the mask to have a wrong size
-        mask_len = mask_h * mask_w
-        if mask_len < seq_len:
-            pad_len = seq_len - mask_len
-            pad1 = pad_len // 2
-            pad2 = pad_len - pad1
-            mask = F.pad(mask, (0, 0, pad1, pad2), value=0.0)
-        elif mask_len > seq_len:
-            crop_start = (mask_len - seq_len) // 2
-            mask = mask[:, crop_start:crop_start+seq_len, :]
+#         # covers cases where extreme aspect ratios can cause the mask to have a wrong size
+#         mask_len = mask_h * mask_w
+#         if mask_len < seq_len:
+#             pad_len = seq_len - mask_len
+#             pad1 = pad_len // 2
+#             pad2 = pad_len - pad1
+#             mask = F.pad(mask, (0, 0, pad1, pad2), value=0.0)
+#         elif mask_len > seq_len:
+#             crop_start = (mask_len - seq_len) // 2
+#             mask = mask[:, crop_start:crop_start+seq_len, :]
 
-        out_ip = out_ip * mask
+#         out_ip = out_ip * mask
 
-    return out_ip.to(dtype=dtype)
+#     return out_ip.to(dtype=dtype)
 
-def to_gray(img):
-    x = 0.299 * img[:, 0:1] + 0.587 * img[:, 1:2] + 0.114 * img[:, 2:3]
-    x = x.repeat(1, 3, 1, 1)
-    return x
+# def to_gray(img):
+#     x = 0.299 * img[:, 0:1] + 0.587 * img[:, 1:2] + 0.114 * img[:, 2:3]
+#     x = x.repeat(1, 3, 1, 1)
+#     return x
 
-# Tensor to PIL
-def tensor2pil(image):
-    return Image.fromarray(
-        np.clip(255.0 * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8)
-    )
+# # Tensor to PIL
+# def tensor2pil(image):
+#     return Image.fromarray(
+#         np.clip(255.0 * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8)
+#     )
 
-# Convert PIL to Tensor
-def pil2tensor(image):
-    return torch.from_numpy(
-        np.array(image).astype(np.float32) / 255.0
-    ).unsqueeze(0)
+# # Convert PIL to Tensor
+# def pil2tensor(image):
+#     return torch.from_numpy(
+#         np.array(image).astype(np.float32) / 255.0
+#     ).unsqueeze(0)
 
 """
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -204,7 +207,7 @@ def pil2tensor(image):
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """
 
-class PulidModelLoader:
+class LoadModelPulID:
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -217,24 +220,7 @@ class PulidModelLoader:
     FUNCTION = "load_model"
     CATEGORY = "pulid"
 
-    def load_model(self, pulid_file):
-        ckpt_path = folder_paths.get_full_path(PULID_DIR, pulid_file)
-
-        model = comfy.utils.load_torch_file(ckpt_path, safe_load=True)
-
-        if ckpt_path.lower().endswith(".safetensors"):
-            st_model = {"image_proj": {}, "ip_adapter": {}}
-            for key in model.keys():
-                if key.startswith("image_proj."):
-                    st_model["image_proj"][key.replace("image_proj.", "")] = model[key]
-                elif key.startswith("ip_adapter."):
-                    st_model["ip_adapter"][key.replace("ip_adapter.", "")] = model[key]
-            model = st_model
-        
-        # Also initialize the model, takes longer to load but then it doesn't have to be done every time you change parameters in the apply node
-        model = PulidModel(model)
-
-        return (model,)
+    load_model = load_model_pulid
     
     
     
@@ -248,14 +234,12 @@ class PulidInsightFaceLoader:
         }
 
     RETURN_TYPES = ("FACEANALYSIS",)
-    FUNCTION = "load_insightface"
+    FUNCTION = "load_model"
     CATEGORY = "pulid"
 
-    def load_insightface(self, provider):
-        model = FaceAnalysis(name="antelopev2", root=INSIGHTFACE_PATH, providers=[provider + 'ExecutionProvider',]) # alternative to buffalo_l
-        model.prepare(ctx_id=0, det_size=(640, 640))
+    load_model = load_model_insightface
 
-        return (model,)
+    
     
 
 
@@ -313,11 +297,20 @@ class PulidEvaClipLoader:
     def INPUT_TYPES(s):
         return {
             "required": {},
+            "required": {},
         }
 
     RETURN_TYPES = ("EVA_CLIP",)
     FUNCTION = "load_eva_clip"
     CATEGORY = "pulid"
+
+    def load_eva_clip(self):
+        from .eva_clip.factory import create_model_and_transforms
+
+        model, _, _ = create_model_and_transforms('EVA02-CLIP-L-14-336', 'eva_clip', force_custom_clip=True)
+
+        model = model.visual
+
 
     def load_eva_clip(self):
         from .eva_clip.factory import create_model_and_transforms
@@ -333,7 +326,9 @@ class PulidEvaClipLoader:
         if not isinstance(eva_transform_std, (list, tuple)):
             model["image_std"] = (eva_transform_std,) * 3
 
+
         return (model,)
+
 
 
 
@@ -557,7 +552,7 @@ class ImageGetWidthHeight:
 # A dictionary that contains all nodes you want to export with their names
 NODE_CLASS_MAPPINGS = {
     "ImageGetWidthHeight": ImageGetWidthHeight,
-    "PulidModelLoader": PulidModelLoader,
+    "LoadModelPulID": LoadModelPulID,
     "PulidInsightFaceLoader": PulidInsightFaceLoader,
     "PulidEvaClipLoader": PulidEvaClipLoader,
     "ApplyPulid": ApplyPulid,
@@ -565,7 +560,7 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageGetWidthHeight": "Image Get Width and Height",
-    "PulidModelLoader": "Load PuLID Model",
+    "LoadModelPulID": "Load PuLID Model",
     "PulidInsightFaceLoader": "Load InsightFace (PuLID)",
     "PulidEvaClipLoader": "Load Eva Clip (PuLID)",
     "ApplyPulid": "Apply PuLID",
