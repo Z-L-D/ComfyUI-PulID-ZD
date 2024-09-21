@@ -58,7 +58,10 @@ class PuLIDPipeline:
         # ID adapters
         self.id_adapter = IDEncoder().to(self.device)
 
+        ##############################
         # preprocessors
+        ##############################
+
         # face align and parsing
         self.face_helper = FaceRestoreHelper(
             upscale_factor=1,
@@ -70,6 +73,8 @@ class PuLIDPipeline:
         )
         self.face_helper.face_parse = None
         self.face_helper.face_parse = init_parsing_model(model_name='bisenet', device=self.device)
+
+
         # clip-vit backbone
         model, _, _ = create_model_and_transforms('EVA02-CLIP-L-14-336', 'eva_clip', force_custom_clip=True)
         model = model.visual
@@ -82,6 +87,8 @@ class PuLIDPipeline:
             eva_transform_std = (eva_transform_std,) * 3
         self.eva_transform_mean = eva_transform_mean
         self.eva_transform_std = eva_transform_std
+
+
         # antelopev2
         snapshot_download('DIAMONIK7777/antelopev2', local_dir='models/antelopev2')
         self.app = FaceAnalysis(
