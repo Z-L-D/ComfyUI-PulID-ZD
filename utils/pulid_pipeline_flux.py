@@ -306,11 +306,16 @@ def PulIDPipelineFLUX(work_model, pulid, eva_clip, face_analysis, image, weight,
             else torchTransforms.InterpolationMode.NEAREST,
         ).to(device, dtype=dtype)
         face_features_image = torchTransforms.functional.normalize(
-            face_features_image, eva_clip.image_mean, eva_clip.image_std
+            face_features_image, 
+            eva_clip.image_mean, 
+            eva_clip.image_std
         )
 
         id_cond_vit, id_vit_hidden = eva_clip(
-            face_features_image, return_all_features=False, return_hidden=True, shuffle=False
+            face_features_image,
+            return_all_features=False,
+            return_hidden=True,
+            shuffle=False
         )
         id_cond_vit = id_cond_vit.to(device, dtype=dtype)
         for idx in range(len(id_vit_hidden)):

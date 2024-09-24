@@ -133,20 +133,37 @@ def PulIDPipelineSDXL(self, work_model, pulid, eva_clip, face_analysis, image, w
         if len(face_helper.cropped_faces) == 0:
             # No face detected, skip this image
             continue
-            
+
         face = face_helper.cropped_faces[0]
-        face = image_to_tensor(face).unsqueeze(0).permute(0,3,1,2).to(device)
-        parsing_out = face_helper.face_parse(torchTransforms.functional.normalize(face, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]))[0]
+        face = image_to_tensor(face).unsqueeze(0).permute(0, 3, 1, 2).to(device)
+        parsing_out = face_helper.face_parse(
+            torchTransforms.functional.normalize(face, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        )[0]
         parsing_out = parsing_out.argmax(dim=1, keepdim=True)
         bg = sum(parsing_out == i for i in bg_label).bool()
         white_image = torch.ones_like(face)
         face_features_image = torch.where(bg, white_image, to_gray(face))
 
         # apparently MPS only supports NEAREST interpolation?
-        face_features_image = torchTransforms.functional.resize(face_features_image, eva_clip.image_size, torchTransforms.InterpolationMode.BICUBIC if 'cuda' in device.type else torchTransforms.InterpolationMode.NEAREST).to(device, dtype=dtype)
-        face_features_image = torchTransforms.functional.normalize(face_features_image, eva_clip.image_mean, eva_clip.image_std)
-            
-        id_cond_vit, id_vit_hidden = eva_clip(face_features_image, return_all_features=False, return_hidden=True, shuffle=False)
+        face_features_image = torchTransforms.functional.resize(
+            face_features_image,
+            eva_clip.image_size,
+            torchTransforms.InterpolationMode.BICUBIC
+            if 'cuda' in device.type
+            else torchTransforms.InterpolationMode.NEAREST,
+        ).to(device, dtype=dtype)
+        face_features_image = torchTransforms.functional.normalize(
+            face_features_image, 
+            eva_clip.image_mean, 
+            eva_clip.image_std
+        )
+
+        id_cond_vit, id_vit_hidden = eva_clip(
+            face_features_image,
+            return_all_features=False,
+            return_hidden=True,
+            shuffle=False
+        )
         id_cond_vit = id_cond_vit.to(device, dtype=dtype)
         for idx in range(len(id_vit_hidden)):
             id_vit_hidden[idx] = id_vit_hidden[idx].to(device, dtype=dtype)
