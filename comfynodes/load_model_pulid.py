@@ -3,6 +3,7 @@ import folder_paths
 import comfy.utils
 from ..comfymodels.path import INSIGHTFACE_DIR, INSIGHTFACE_PATH, PULID_DIR, PULID_PATH, CLIP_DIR, CLIP_PATH, FACEDETECT_DIR, FACEDETECT_PATH, FACERESTORE_DIR, FACERESTORE_PATH
 from ..utils.pulid_pipeline_sdxl import PulidModelSDXL
+from ..utils.pulid_pipeline_flux import PulidModelFlux
 
 
 def load_model_pulid(self, pulid_file):
@@ -24,7 +25,7 @@ def load_model_pulid(self, pulid_file):
         model = PulidModelSDXL(model)
         
     elif(pulid_file == "pulid_flux_v0.9.0.safetensors"):
-        model = ""
+        model = PulidModelFlux(model)
     
 
     return (model,)
