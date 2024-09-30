@@ -12,6 +12,8 @@ from ..facexlib.utils.face_restoration_helper import FaceRestoreHelper
 from ..pulid.encoders import IDEncoder
 from ..utils.tensors import tensor_to_image, tensor_to_size, image_to_tensor, to_gray
 
+
+
 class PulidModelSDXL(nn.Module):
     def __init__(self, model):
         super().__init__()

@@ -91,25 +91,25 @@ class PuLIDPipeline(nn.Module):
         self.clip_vision_model = self.clip_vision_model.to(device)
         self.pulid_encoder = self.pulid_encoder.to(device)
 
-    # def load_pretrain(self, pretrain_path=None):
-    #     hf_hub_download('guozinan/PuLID', 'pulid_flux_v0.9.0.safetensors', local_dir='models')
-    #     ckpt_path = 'models/pulid_flux_v0.9.0.safetensors'
-    #     if pretrain_path is not None:
-    #         ckpt_path = pretrain_path
-    #     state_dict = load_file(ckpt_path)
-    #     state_dict_dict = {}
-    #     for k, v in state_dict.items():
-    #         module = k.split('.')[0]
-    #         state_dict_dict.setdefault(module, {})
-    #         new_k = k[len(module) + 1:]
-    #         state_dict_dict[module][new_k] = v
+    def load_pretrain(self, pretrain_path=None):
+        hf_hub_download('guozinan/PuLID', 'pulid_flux_v0.9.0.safetensors', local_dir='models')
+        ckpt_path = 'models/pulid_flux_v0.9.0.safetensors'
+        if pretrain_path is not None:
+            ckpt_path = pretrain_path
+        state_dict = load_file(ckpt_path)
+        state_dict_dict = {}
+        for k, v in state_dict.items():
+            module = k.split('.')[0]
+            state_dict_dict.setdefault(module, {})
+            new_k = k[len(module) + 1:]
+            state_dict_dict[module][new_k] = v
 
-    #     for module in state_dict_dict:
-    #         print(f'loading from {module}')
-    #         getattr(self, module).load_state_dict(state_dict_dict[module], strict=True)
+        for module in state_dict_dict:
+            print(f'loading from {module}')
+            getattr(self, module).load_state_dict(state_dict_dict[module], strict=True)
 
-    #     del state_dict
-    #     del state_dict_dict
+        del state_dict
+        del state_dict_dict
 
     def to_gray(self, img):
         x = 0.299 * img[:, 0:1] + 0.587 * img[:, 1:2] + 0.114 * img[:, 2:3]
